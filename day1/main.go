@@ -10,6 +10,79 @@ import (
 	"strings"
 )
 
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Fprintf(os.Stderr, "Usage: %s inputfile\n", os.Args[0])
+		os.Exit(1)
+	}
+
+	filename := os.Args[1]
+	inputFile, err := os.Open(filename)
+	if err != nil {
+		panic(fmt.Sprintf("failed to open input file: %s", err))
+	}
+
+	defer inputFile.Close()
+
+	inputFileBytes, err := io.ReadAll(inputFile)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read input file: %s", err))
+	}
+
+	input := string(inputFileBytes)
+	inputLines := strings.Split(strings.TrimSpace(input), "\n")
+
+	fmt.Printf("Part 1: %d\n", part1(inputLines))
+	fmt.Printf("Part 2: %d\n", part2(inputLines))
+}
+
+func part1(input []string) int {
+	digits := []string{
+		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	}
+
+	result, err := solve(input, digits, strconv.Atoi)
+	if err != nil {
+		panic(err)
+	}
+
+	return result
+}
+
+func part2(input []string) int {
+	digits := []string{
+		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	}
+
+	words := []string{
+		"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+	}
+
+	allPossible := make([]string, len(digits), len(digits)+len(words))
+	copy(allPossible, digits)
+	allPossible = append(allPossible, words...)
+
+	result, err := solve(input, allPossible, func(s string) (int, error) {
+		n, err := strconv.Atoi(s)
+		if err == nil {
+			return n, nil
+		}
+
+		idx := slices.Index(words, s)
+		if idx != -1 {
+			return idx, nil
+		}
+
+		return 0, errors.New("invalid digit")
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	return result
+}
+
 // filterToMatches find all overlapping matches of the stringset "valid" in "line"
 func filterToMatches(line string, valid []string) []string {
 	type match struct {
@@ -99,77 +172,4 @@ func solve(input []string, validNumbers []string, convert func(string) (int, err
 	}
 
 	return total, nil
-}
-
-func part1(input []string) int {
-	digits := []string{
-		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	}
-
-	result, err := solve(input, digits, strconv.Atoi)
-	if err != nil {
-		panic(err)
-	}
-
-	return result
-}
-
-func part2(input []string) int {
-	digits := []string{
-		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	}
-
-	words := []string{
-		"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-	}
-
-	allPossible := make([]string, len(digits), len(digits)+len(words))
-	copy(allPossible, digits)
-	allPossible = append(allPossible, words...)
-
-	result, err := solve(input, allPossible, func(s string) (int, error) {
-		n, err := strconv.Atoi(s)
-		if err == nil {
-			return n, nil
-		}
-
-		idx := slices.Index(words, s)
-		if idx != -1 {
-			return idx, nil
-		}
-
-		return 0, errors.New("invalid digit")
-	})
-
-	if err != nil {
-		panic(err)
-	}
-
-	return result
-}
-
-func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s inputfile\n", os.Args[0])
-		os.Exit(1)
-	}
-
-	filename := os.Args[1]
-	inputFile, err := os.Open(filename)
-	if err != nil {
-		panic(fmt.Sprintf("failed to open input file: %s", err))
-	}
-
-	defer inputFile.Close()
-
-	inputFileBytes, err := io.ReadAll(inputFile)
-	if err != nil {
-		panic(fmt.Sprintf("failed to read input file: %s", err))
-	}
-
-	input := string(inputFileBytes)
-	inputLines := strings.Split(strings.TrimSpace(input), "\n")
-
-	fmt.Printf("Part 1: %d\n", part1(inputLines))
-	fmt.Printf("Part 2: %d\n", part2(inputLines))
 }

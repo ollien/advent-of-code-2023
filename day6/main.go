@@ -46,24 +46,37 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(races))
-	// fmt.Printf("Part 2: %d\n", part2(seeds, conversions, workSize))
+	fmt.Printf("Part 2: %d\n", part2(races))
 }
 
 func part1(races []Race) int {
 	res := 1
 	for _, race := range races {
-		possibleWins := 0
-		for timeHeld := 0; timeHeld <= race.time; timeHeld++ {
-			distance := distanceForTimeHeld(timeHeld, race.time)
-			if distance > race.recordDistance {
-				possibleWins++
-			}
-		}
-
-		res *= possibleWins
+		res *= numberOfWaysToWinRace(race)
 	}
 
 	return res
+}
+
+func part2(races []Race) int {
+	bigRace, err := combineRaces(races)
+	if err != nil {
+		panic(err)
+	}
+
+	return numberOfWaysToWinRace(bigRace)
+}
+
+func numberOfWaysToWinRace(race Race) int {
+	possibleWins := 0
+	for timeHeld := 0; timeHeld <= race.time; timeHeld++ {
+		distance := distanceForTimeHeld(timeHeld, race.time)
+		if distance > race.recordDistance {
+			possibleWins++
+		}
+	}
+
+	return possibleWins
 }
 
 func distanceForTimeHeld(buttonHeld int, raceTime int) int {
@@ -121,6 +134,47 @@ func removeRowPrefix(s string, prefix string) string {
 	pattern := regexp.MustCompile("^" + regexp.QuoteMeta(prefix) + `:\s*`)
 
 	return pattern.ReplaceAllLiteralString(s, "")
+}
+
+func combineRaces(races []Race) (Race, error) {
+	if len(races) == 0 {
+		return Race{}, errors.New("cannot combine zero races into one")
+	}
+
+	raceTimes := make([]int, len(races))
+	raceRecords := make([]int, len(races))
+	for i, race := range races {
+		raceTimes[i] = race.time
+		raceRecords[i] = race.recordDistance
+	}
+
+	bigRaceTime := smashNumbers(raceTimes)
+	bigRaceRecord := smashNumbers(raceRecords)
+
+	return Race{
+		time:           bigRaceTime,
+		recordDistance: bigRaceRecord,
+	}, nil
+}
+
+func smashNumbers(nums []int) int {
+	if len(nums) == 0 {
+		// programmer error
+		panic("cannot combine zero numbers into a big one")
+	}
+
+	s := ""
+	for _, n := range nums {
+		s += strconv.Itoa(n)
+	}
+
+	bigNum, err := strconv.Atoi(s)
+	if err != nil {
+		// should never fail, given we only use numbers as is
+		panic(fmt.Sprintf("converting %s to a number failed: %w", s, err))
+	}
+
+	return bigNum
 }
 
 func tryParse[T any](items []string, doParse func(s string) (T, error)) ([]T, error) {

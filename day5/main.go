@@ -1,7 +1,3 @@
-// 136110000 TOO HIGH
-// 664041710 TOO HIGH
-// 887862361 TOO HIGH
-
 package main
 
 import (

@@ -14,7 +14,8 @@ import (
 type Card int
 
 const (
-	Two Card = iota + 2
+	Joker Card = iota + 1
+	Two
 	Three
 	Four
 	Five
@@ -49,29 +50,75 @@ type Player struct {
 	hand Hand
 }
 
+// Kind gets the "Kind" of the hand, which determines its value.
 func (hand Hand) Kind() (HandKind, error) {
-	handCounts := map[HandKind][]int{
-		FiveOfAKind:  {5},
-		FourOfAKind:  {1, 4},
-		FullHouse:    {2, 3},
-		ThreeOfAKind: {1, 1, 3},
-		TwoPair:      {1, 2, 2},
-		OnePair:      {1, 1, 1, 2},
-		HighCard:     {1, 1, 1, 1, 1},
+	type kindMapping struct {
+		kind           HandKind
+		distinctCounts []int
 	}
 
-	distinctCounts := hand.CountDistinct()
+	// Must iterate in order so we try each kind first
+	handCounts := []kindMapping{
+		{
+			kind:           FiveOfAKind,
+			distinctCounts: []int{5},
+		},
+		{
+			kind:           FourOfAKind,
+			distinctCounts: []int{1, 4},
+		},
+		{
+			kind:           FullHouse,
+			distinctCounts: []int{2, 3},
+		},
+		{
+			kind:           ThreeOfAKind,
+			distinctCounts: []int{1, 1, 3},
+		},
+		{
+			kind:           TwoPair,
+			distinctCounts: []int{1, 2, 2},
+		},
+		{
+			kind:           OnePair,
+			distinctCounts: []int{1, 1, 1, 2},
+		},
+		{
+			kind:           HighCard,
+			distinctCounts: []int{1, 1, 1, 1, 1},
+		},
+	}
+
+	handWithoutJokers, numJokers := hand.WithoutCard(Joker)
+	distinctCounts := handWithoutJokers.CountDistinct()
 	cardCounts := mapValues(distinctCounts)
 	slices.Sort(cardCounts)
-	for kind, kindCounts := range handCounts {
-		if slices.Equal(cardCounts, kindCounts) {
-			return kind, nil
+	for _, mapping := range handCounts {
+		if canMakeKindWithCardCombo(cardCounts, mapping.distinctCounts, numJokers) {
+			return mapping.kind, nil
 		}
 	}
 
-	return UnknownKind, errors.New("got it")
+	return UnknownKind, errors.New("no known kind for hand")
 }
 
+// WithoutCard will return a copy of the Hand without the given card, toRemove
+func (hand Hand) WithoutCard(toRemove Card) (Hand, int) {
+	newHand := Hand{}
+	numRemoved := 0
+	for _, card := range hand {
+		if card == toRemove {
+			numRemoved++
+			continue
+		}
+
+		newHand = append(newHand, card)
+	}
+
+	return newHand, numRemoved
+}
+
+// CountDistinct returns a count of distinct cards by each card type
 func (hand Hand) CountDistinct() map[Card]int {
 	buckets := make(map[Card]int)
 	for _, card := range hand {
@@ -111,15 +158,22 @@ func main() {
 		panic(fmt.Sprintf("failed to parse races: %s", err))
 	}
 
-	for _, player := range players {
-		kind, _ := player.hand.Kind()
-		fmt.Printf("%+v %+v\n", player.hand, kind)
-	}
-
 	fmt.Printf("Part 1: %d\n", part1(players))
+	fmt.Printf("Part 2: %d\n", part2(players))
 }
 
 func part1(players []Player) int {
+	return findWinnings(players)
+}
+
+func part2(originalPlayers []Player) int {
+	players := makePart2Players(originalPlayers)
+
+	return findWinnings(players)
+}
+
+// findWinnings finds the winning for each game
+func findWinnings(players []Player) int {
 	sortedPlayers := slices.Clone(players)
 	slices.SortFunc(sortedPlayers, func(a, b Player) int {
 		aKind, err := a.hand.Kind()
@@ -146,6 +200,65 @@ func part1(players []Player) int {
 	}
 
 	return winnings
+}
+
+// makePart2Players prepares the players for part 2 by replacing Jacks with Jokers
+func makePart2Players(players []Player) []Player {
+	newPlayers := slices.Clone(players)
+	for i, player := range newPlayers {
+		updPlayer := player
+		updPlayer.hand = makePart2Hand(player.hand)
+		newPlayers[i] = updPlayer
+	}
+
+	return newPlayers
+}
+
+// makePart2Hand makes replaces Jacks with Jokers in each hand for part 2
+func makePart2Hand(hand Hand) Hand {
+	newHand := slices.Clone(hand)
+	for i, card := range newHand {
+		if card == Jack {
+			newHand[i] = Joker
+		}
+	}
+	return newHand
+}
+
+// canMakeKindWithCardCombo checks that if we can make the kind given. This is done by taking a sorted list of
+// each of the number of each type of card. For instance, 55766 would be [2, 2, 1]
+func canMakeKindWithCardCombo(handDistinctCardCounts []int, kindCardCounts []int, numJokers int) bool {
+	if numJokers == 0 {
+		return slices.Equal(kindCardCounts, handDistinctCardCounts)
+	} else if len(handDistinctCardCounts) == 0 && numJokers == 5 && slices.Equal(kindCardCounts, []int{5}) {
+		// If we have five jokers, we must act as a five of a kind (most valuable)
+		return true
+	}
+	permutations := permutationsOfJokers(handDistinctCardCounts, numJokers)
+
+	for _, permutation := range permutations {
+		if slices.Equal(permutation, kindCardCounts) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Find all the positions where our sets of jokers could be located in in the distinct card count set
+func permutationsOfJokers(distinctCardCounts []int, numJokers int) [][]int {
+	if numJokers == 0 {
+		return [][]int{distinctCardCounts}
+	}
+
+	permutations := [][]int{}
+	for i, count := range distinctCardCounts {
+		newCounts := slices.Clone(distinctCardCounts)
+		newCounts[i] = count + 1
+		permutations = append(permutations, permutationsOfJokers(newCounts, numJokers-1)...)
+	}
+
+	return permutations
 }
 
 func parsePlayers(inputLines []string) ([]Player, error) {

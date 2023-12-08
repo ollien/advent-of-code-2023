@@ -17,11 +17,6 @@ const (
 	DirectionRight
 )
 
-const (
-	NodeAddressStart NodeAddress = "AAA"
-	NodeAddressEnd   NodeAddress = "ZZZ"
-)
-
 type NodeChoice struct {
 	left  NodeAddress
 	right NodeAddress
@@ -79,18 +74,20 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(directions, nodeMap))
+	fmt.Printf("Part 2: %d\n", part2(directions, nodeMap))
 }
 
 func part1(directions []Direction, nodeMap map[NodeAddress]NodeChoice) int {
+	const (
+		NodeAddressStart NodeAddress = "AAA"
+		NodeAddressEnd   NodeAddress = "ZZZ"
+	)
+
 	directionCursor := 0
 	currentNode := NodeAddressStart
 	steps := 0
 
 	for currentNode != NodeAddressEnd {
-		if currentNode == NodeAddressEnd {
-			return steps
-		}
-
 		direction := directions[directionCursor]
 		currentNode = nodeMap[currentNode].TakeDirection(direction)
 		directionCursor = (directionCursor + 1) % len(directions)
@@ -98,6 +95,79 @@ func part1(directions []Direction, nodeMap map[NodeAddress]NodeChoice) int {
 	}
 
 	return steps
+}
+
+func part2(directions []Direction, nodeMap map[NodeAddress]NodeChoice) int {
+	directionCursor := 0
+	nodes := findPart2StartingNodes(nodeMap)
+	if len(nodes) == 0 {
+		panic("no starting nodes")
+	}
+
+	steps := 0
+	encounteredEnd := []int{}
+
+	for len(encounteredEnd) != len(nodes) {
+		direction := directions[directionCursor]
+		for i, node := range nodes {
+			nodes[i] = nodeMap[node].TakeDirection(direction)
+			if nodeEndsIn(nodes[i], 'Z') {
+				encounteredEnd = append(encounteredEnd, steps+1)
+			}
+		}
+
+		directionCursor = (directionCursor + 1) % len(directions)
+		steps++
+	}
+
+	// Once we have encountered all the steps to get to each ending, the LCM will find the first time they all match
+	return sliceLCM(encounteredEnd)
+}
+
+// sliceLCM finds the LCM of the numbers in the given slice. Panics if the slice is of length zero
+func sliceLCM(nums []int) int {
+	if len(nums) == 0 {
+		panic("cannot find lcm of zero numbers")
+	}
+
+	result := nums[0]
+	for _, n := range nums[1:] {
+		result = lcm(result, n)
+	}
+
+	return result
+}
+
+func lcm(a, b int) int {
+	return b * (a / gcd(a, b))
+}
+
+func gcd(a, b int) int {
+	// https://en.wikipedia.org/wiki/Euclidean_algorithm
+	factor := a
+	rem := b
+	for rem != 0 {
+		oldRem := rem
+		rem = factor % rem
+		factor = oldRem
+	}
+
+	return factor
+}
+
+func findPart2StartingNodes(nodeMap map[NodeAddress]NodeChoice) []NodeAddress {
+	startNodes := []NodeAddress{}
+	for addr := range nodeMap {
+		if nodeEndsIn(addr, 'A') {
+			startNodes = append(startNodes, addr)
+		}
+	}
+
+	return startNodes
+}
+
+func nodeEndsIn(addr NodeAddress, c byte) bool {
+	return addr[len(addr)-1] == c
 }
 
 func parseDirectionLine(line string) ([]Direction, error) {
@@ -130,7 +200,7 @@ func parseMap(lines []string) (map[NodeAddress]NodeChoice, error) {
 }
 
 func parseMapLine(line string) (NodeAddress, NodeChoice, error) {
-	pattern := regexp.MustCompile(`^([A-Z]{3}) = \(([A-Z]{3}), ([A-Z]{3})\)$`)
+	pattern := regexp.MustCompile(`^([0-9A-Z]{2}[A-Z]) = \(([0-9A-Z]{2}[A-Z]), ([0-9A-Z]{2}[A-Z])\)$`)
 	matches := pattern.FindStringSubmatch(line)
 	if matches == nil {
 		return "", NodeChoice{}, errors.New("malformed line")

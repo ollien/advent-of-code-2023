@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -35,12 +36,24 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(histories))
+	fmt.Printf("Part 2: %d\n", part2(histories))
 }
 
 func part1(histories [][]int) int {
 	total := 0
 	for _, history := range histories {
 		total += predictNextValue(history)
+	}
+
+	return total
+}
+
+func part2(histories [][]int) int {
+	total := 0
+	for _, history := range histories {
+		reversedHistory := slices.Clone(history)
+		slices.Reverse(reversedHistory)
+		total += predictNextValue(reversedHistory)
 	}
 
 	return total

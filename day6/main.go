@@ -35,10 +35,6 @@ func main() {
 	}
 
 	input := strings.TrimSpace(string(inputBytes))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse input: %s", err))
-	}
-
 	inputLines := strings.Split(input, "\n")
 	races, err := parseRaces(inputLines)
 	if err != nil {

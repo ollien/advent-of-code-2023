@@ -19,6 +19,14 @@ const (
 	SpringStateUnknown
 )
 
+type SequenceStatus int
+
+const (
+	SequenceStatusDoesntMatch SequenceStatus = iota
+	SequenceStatusMatches
+	SequencesStatusCouldMatch
+)
+
 type SpringStates []SpringState
 
 type Record struct {
@@ -43,52 +51,54 @@ func (states SpringStates) Print() {
 }
 
 func (r Record) EvaluateUnknownStates() []SpringStates {
-	res := []SpringStates{}
-	for _, possibleStates := range getAllPossibleStates(r.states, 0) {
-		if r.matchesSequence(possibleStates) {
-			res = append(res, possibleStates)
-		}
-	}
-
-	return res
+	return r.generateStates(r.states, 0, 0)
 }
 
-func (r Record) matchesSequence(states SpringStates) bool {
-	sequenceCountCursor := 0
-	// states.Print()
-	damageCount := 0
-	needSpace := false
-	for _, state := range states {
-		if sequenceCountCursor > len(r.sequences)-1 && state == SpringStateDamaged {
-			return false
-		} else if sequenceCountCursor > len(r.sequences)-1 {
-			continue
+func (r Record) generateStates(states SpringStates, stateIdx int, sequenceIdx int) []SpringStates {
+	if slices.Index(states, SpringStateUnknown) == -1 && matchesSequence(states, r.sequences) == SequenceStatusMatches {
+		return []SpringStates{states}
+	} else if stateIdx > len(r.states)-1 {
+		return []SpringStates{}
+	} else if sequenceIdx == len(r.sequences) {
+		// Try the same thing, but with all the remaining items as operational (as this can still be a match)
+		allOperational := slices.Clone(states)
+		for i, state := range allOperational {
+			if state == SpringStateUnknown {
+				allOperational[i] = SpringStateOperational
+			}
 		}
 
-		sequenceCount := r.sequences[sequenceCountCursor]
-		if needSpace && state != SpringStateOperational {
-			return false
-		} else if needSpace {
-			needSpace = false
-			continue
-		} else if state == SpringStateOperational && damageCount > 0 && damageCount < sequenceCount {
-			return false
+		if matchesSequence(allOperational, r.sequences) == SequenceStatusMatches {
+			return []SpringStates{allOperational}
+		} else {
+			return []SpringStates{}
 		}
-
-		if state == SpringStateDamaged {
-			damageCount++
-		} else if state == SpringStateOperational {
-			damageCount = 0
-		}
-
-		if damageCount == sequenceCount {
-			sequenceCountCursor++
-			damageCount = 0
-			needSpace = true
-		}
+	} else if matchesSequence(states[:stateIdx+1], r.sequences[:sequenceIdx+1]) == SequenceStatusMatches {
+		return r.generateStates(states, stateIdx+1, sequenceIdx+1)
+	} else if r.states[stateIdx] != SpringStateUnknown {
+		return r.generateStates(states, stateIdx+1, sequenceIdx)
 	}
 
-	return sequenceCountCursor == len(r.sequences)
+	generatedStates := []SpringStates{}
+	ifOperational := slices.Clone(states)
+	ifOperational[stateIdx] = SpringStateOperational
+	operationalMatches := matchesSequence(ifOperational[:stateIdx+1], r.sequences[:sequenceIdx+1])
+	if operationalMatches == SequenceStatusMatches {
+		generatedStates = append(generatedStates, r.generateStates(ifOperational, stateIdx+1, sequenceIdx+1)...)
+	} else if operationalMatches == SequencesStatusCouldMatch {
+		generatedStates = append(generatedStates, r.generateStates(ifOperational, stateIdx+1, sequenceIdx)...)
+	}
+
+	ifDamaged := slices.Clone(states)
+	ifDamaged[stateIdx] = SpringStateDamaged
+	damagedMatches := matchesSequence(ifDamaged[:stateIdx+1], r.sequences[:sequenceIdx+1])
+	if damagedMatches == SequenceStatusMatches {
+		generatedStates = append(generatedStates, r.generateStates(ifDamaged, stateIdx+1, sequenceIdx+1)...)
+	} else if damagedMatches == SequencesStatusCouldMatch {
+		generatedStates = append(generatedStates, r.generateStates(ifDamaged, stateIdx+1, sequenceIdx)...)
+	}
+
+	return generatedStates
 }
 
 func main() {
@@ -131,27 +141,47 @@ func part1(records []Record) int {
 	return total
 }
 
-func getAllPossibleStates(states SpringStates, trackingIdx int) []SpringStates {
-	if trackingIdx > len(states)-1 {
-		return []SpringStates{}
-	} else if states[trackingIdx] != SpringStateUnknown {
-		return getAllPossibleStates(states, trackingIdx+1)
+func matchesSequence(states SpringStates, sequences []int) SequenceStatus {
+	sequenceCountCursor := 0
+	damageCount := 0
+	needSpace := false
+	for _, state := range states {
+		if sequenceCountCursor > len(sequences)-1 && state == SpringStateDamaged {
+			return SequenceStatusDoesntMatch
+		} else if sequenceCountCursor > len(sequences)-1 {
+			continue
+		}
+
+		sequenceCount := sequences[sequenceCountCursor]
+		if needSpace && state != SpringStateOperational {
+			return SequenceStatusDoesntMatch
+		} else if needSpace {
+			needSpace = false
+			continue
+		} else if state == SpringStateOperational && damageCount > 0 && damageCount < sequenceCount {
+			return SequenceStatusDoesntMatch
+		}
+
+		if state == SpringStateDamaged {
+			damageCount++
+		} else if state == SpringStateOperational {
+			damageCount = 0
+		}
+
+		if damageCount == sequenceCount {
+			sequenceCountCursor++
+			damageCount = 0
+			needSpace = true
+		}
 	}
 
-	ifOperational := slices.Clone(states)
-	ifOperational[trackingIdx] = SpringStateOperational
-	ifDamaged := slices.Clone(states)
-	ifDamaged[trackingIdx] = SpringStateDamaged
-
-	if slices.Index(states[trackingIdx+1:], SpringStateUnknown) == -1 {
-		return []SpringStates{ifOperational, ifDamaged}
+	if sequenceCountCursor < len(sequences) && damageCount < sequences[sequenceCountCursor] {
+		return SequencesStatusCouldMatch
+	} else if sequenceCountCursor == len(sequences) {
+		return SequenceStatusMatches
+	} else {
+		return SequenceStatusDoesntMatch
 	}
-
-	possibilities := []SpringStates{}
-	possibilities = append(possibilities, getAllPossibleStates(ifOperational, trackingIdx+1)...)
-	possibilities = append(possibilities, getAllPossibleStates(ifDamaged, trackingIdx+1)...)
-
-	return possibilities
 }
 
 func parseRecords(inputLines []string) ([]Record, error) {

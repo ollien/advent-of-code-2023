@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type SpringState int
@@ -184,25 +185,44 @@ func main() {
 }
 
 func part1(records []Record) int {
-	total := 0
-	for _, record := range records {
-		possibilities := record.CountPossibleStates()
-		total += possibilities
-	}
-
-	return total
+	return evaluate(records)
 }
 
 func part2(records []Record) int {
-	total := 0
-	for _, originalRecord := range records {
-		record := Record{
+	repeatedRecords := make([]Record, len(records))
+	for i, originalRecord := range records {
+		repeatedRecords[i] = Record{
 			states:    repeatSliceWithSeparator(originalRecord.states, 4, SpringStateUnknown),
 			sequences: repeatSlice(originalRecord.sequences, 4),
 		}
+	}
 
-		possibilities := record.CountPossibleStates()
-		total += possibilities
+	return evaluate(repeatedRecords)
+}
+
+func evaluate(records []Record) int {
+	total := 0
+	answerChan := make(chan int)
+	wg := sync.WaitGroup{}
+	// Concurrently, just for fun :)
+
+	for _, record := range records {
+		wg.Add(1)
+		r := record
+		go func() {
+			possibilities := r.CountPossibleStates()
+			answerChan <- possibilities
+			wg.Done()
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(answerChan)
+	}()
+
+	for answer := range answerChan {
+		total += answer
 	}
 
 	return total
@@ -355,12 +375,4 @@ func anyEqual[T comparable, S ~[]T](slice S, val T) bool {
 	}
 
 	return false
-}
-
-func max(x, y int) int {
-	if x > y {
-		return x
-	}
-
-	return y
 }

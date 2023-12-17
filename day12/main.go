@@ -34,71 +34,101 @@ type Record struct {
 	sequences []int
 }
 
-func (states SpringStates) Print() {
+func (states SpringStates) String() string {
+	res := ""
 	for _, state := range states {
 		switch state {
 		case SpringStateDamaged:
-			fmt.Print("#")
+			res += "#"
 		case SpringStateOperational:
-			fmt.Print(".")
+			res += "."
 		case SpringStateUnknown:
-			fmt.Print("?")
+			res += "?"
 		default:
 			panic("invalid state")
 		}
 	}
-	fmt.Println()
+
+	return res
 }
 
 func (r Record) EvaluateUnknownStates() []SpringStates {
 	return r.generateStates(r.states, 0, 0)
 }
 
-func (r Record) generateStates(states SpringStates, stateIdx int, sequenceIdx int) []SpringStates {
-	if slices.Index(states, SpringStateUnknown) == -1 && matchesSequence(states, r.sequences) == SequenceStatusMatches {
+func (r Record) generateStates(states SpringStates, stateIdx, sequenceIdx int) []SpringStates {
+	if stateIdx > len(states)-1 && sequenceIdx > len(r.sequences)-1 {
 		return []SpringStates{states}
-	} else if stateIdx > len(r.states)-1 {
+	} else if stateIdx > len(states)-1 {
 		return []SpringStates{}
-	} else if sequenceIdx == len(r.sequences) {
-		// Try the same thing, but with all the remaining items as operational (as this can still be a match)
-		allOperational := slices.Clone(states)
-		for i, state := range allOperational {
-			if state == SpringStateUnknown {
-				allOperational[i] = SpringStateOperational
-			}
-		}
-
-		if matchesSequence(allOperational, r.sequences) == SequenceStatusMatches {
-			return []SpringStates{allOperational}
+	} else if sequenceIdx > len(r.sequences)-1 {
+		if !anyEqual(states[stateIdx:], SpringStateDamaged) {
+			return []SpringStates{states}
 		} else {
 			return []SpringStates{}
 		}
-	} else if matchesSequence(states[:stateIdx+1], r.sequences[:sequenceIdx+1]) == SequenceStatusMatches {
-		return r.generateStates(states, stateIdx+1, sequenceIdx+1)
-	} else if r.states[stateIdx] != SpringStateUnknown {
+	}
+
+	currentSequenceCount := r.sequences[sequenceIdx]
+	startIdx := stateIdx - currentSequenceCount + 1
+
+	if states[stateIdx] == SpringStateUnknown {
+		ifDamaged := r.exploreWithState(states, stateIdx, sequenceIdx, SpringStateDamaged)
+		ifOperational := r.exploreWithState(states, stateIdx, sequenceIdx, SpringStateOperational)
+
+		return append(ifDamaged, ifOperational...)
+	} else if states[stateIdx] == SpringStateOperational {
+		// If this is damaged, keep going so we can find the rest of the group
 		return r.generateStates(states, stateIdx+1, sequenceIdx)
+	} else if states[stateIdx] != SpringStateDamaged {
+		panic(fmt.Sprintf("invalid state %d", states[stateIdx]))
 	}
 
-	generatedStates := []SpringStates{}
-	ifOperational := slices.Clone(states)
-	ifOperational[stateIdx] = SpringStateOperational
-	operationalMatches := matchesSequence(ifOperational[:stateIdx+1], r.sequences[:sequenceIdx+1])
-	if operationalMatches == SequenceStatusMatches {
-		generatedStates = append(generatedStates, r.generateStates(ifOperational, stateIdx+1, sequenceIdx+1)...)
-	} else if operationalMatches == SequencesStatusCouldMatch {
-		generatedStates = append(generatedStates, r.generateStates(ifOperational, stateIdx+1, sequenceIdx)...)
+	if startIdx < 0 && stateIdx < len(states)-1 && states[stateIdx+1] == SpringStateDamaged {
+		// Could be a match, we don't know yet
+		return r.generateStates(states, stateIdx+1, sequenceIdx)
+	} else if startIdx < 0 && stateIdx < len(states)-1 && states[stateIdx+1] == SpringStateUnknown {
+		return r.exploreWithState(states, stateIdx+1, sequenceIdx, SpringStateDamaged)
+	} else if startIdx < 0 {
+		// Can't be a match anymore
+		return []SpringStates{}
 	}
 
-	ifDamaged := slices.Clone(states)
-	ifDamaged[stateIdx] = SpringStateDamaged
-	damagedMatches := matchesSequence(ifDamaged[:stateIdx+1], r.sequences[:sequenceIdx+1])
-	if damagedMatches == SequenceStatusMatches {
-		generatedStates = append(generatedStates, r.generateStates(ifDamaged, stateIdx+1, sequenceIdx+1)...)
-	} else if damagedMatches == SequencesStatusCouldMatch {
-		generatedStates = append(generatedStates, r.generateStates(ifDamaged, stateIdx+1, sequenceIdx)...)
+	haveRightDamagedCount := allEqual(states[startIdx:stateIdx+1], SpringStateDamaged)
+	if haveRightDamagedCount && !(startIdx == 0 || states[startIdx-1] == SpringStateOperational) {
+		// If all the items in the span are damaged, but the span before that is damaged, this is a bad search
+		return []SpringStates{}
+	} else if haveRightDamagedCount && stateIdx == len(states)-1 && sequenceIdx == len(r.sequences)-1 {
+		// If we have the right damage count, and we've hit the end, then we're done with our search
+		return []SpringStates{states}
+	} else if haveRightDamagedCount && stateIdx == len(states)-1 {
+		// If we have the right damage count, and we've hit the end, but we still have sequences left,
+		// we can't match
+		return []SpringStates{}
+	} else if haveRightDamagedCount && states[stateIdx+1] == SpringStateDamaged {
+		// If the next one is damaged, we have to end our search here
+		return []SpringStates{}
+	} else if haveRightDamagedCount && states[stateIdx+1] == SpringStateUnknown {
+		// If we hit an unknown, try to finish this having ended the sequence
+		return r.exploreWithState(states, stateIdx+1, sequenceIdx+1, SpringStateOperational)
+	} else if haveRightDamagedCount {
+		// We've finished a match successfully, the next is known to be operational
+		return r.generateStates(states, stateIdx+1, sequenceIdx+1)
+	} else if stateIdx < len(states)-1 && states[stateIdx+1] == SpringStateOperational {
+		// This doesn't match, and we've hit the end, so nothing else we can try
+		return []SpringStates{}
+	} else if stateIdx < len(states)-1 && states[stateIdx+1] == SpringStateUnknown {
+		return r.exploreWithState(states, stateIdx+1, sequenceIdx, SpringStateDamaged)
 	}
 
-	return generatedStates
+	return r.generateStates(states, stateIdx+1, sequenceIdx)
+
+}
+
+func (r Record) exploreWithState(states SpringStates, stateIdx, sequenceIdx int, withState SpringState) []SpringStates {
+	updStates := slices.Clone(states)
+	updStates[stateIdx] = withState
+	return r.generateStates(updStates, stateIdx, sequenceIdx)
 }
 
 func main() {
@@ -238,4 +268,24 @@ func tryParse[T any](items []string, parse func(string) (T, error)) ([]T, error)
 	}
 
 	return res, nil
+}
+ 
+func allEqual[T comparable, S ~[]T](slice S, val T) bool {
+	for _, item := range slice {
+		if item != val {
+			return false
+		}
+	}
+
+	return true
+}
+
+func anyEqual[T comparable, S ~[]T](slice S, val T) bool {
+	for _, item := range slice {
+		if item == val {
+			return true
+		}
+	}
+
+	return false
 }

@@ -38,9 +38,9 @@ type Beam struct {
 }
 
 type TileGrid struct {
-	height int
-	width  int
-	tiles  map[Coordinate]Tile
+	Height int
+	Width  int
+	Tiles  map[Coordinate]Tile
 }
 
 func (dir Direction) Horizontal() bool {
@@ -56,10 +56,10 @@ func (grid TileGrid) Print() {
 }
 
 func (grid TileGrid) PrintWithBeams(beams []Beam) {
-	for row := 0; row < grid.height; row++ {
-		for col := 0; col < grid.width; col++ {
+	for row := 0; row < grid.Height; row++ {
+		for col := 0; col < grid.Width; col++ {
 			position := Coordinate{row: row, col: col}
-			tile, ok := grid.tiles[position]
+			tile, ok := grid.Tiles[position]
 			beamIdx := slices.IndexFunc(beams, func(beam Beam) bool {
 				return beam.position == position
 			})
@@ -88,10 +88,12 @@ func (grid TileGrid) PrintWithBeams(beams []Beam) {
 	}
 }
 
+// InBounds checks if the given position is in bounds of the grid
 func (grid TileGrid) InBounds(position Coordinate) bool {
-	return position.row >= 0 && position.col >= 0 && position.row < grid.height && position.col < grid.width
+	return position.row >= 0 && position.col >= 0 && position.row < grid.Height && position.col < grid.Width
 }
 
+// MovedInDirection returns a new beam, which is the result of this beam having moved in the given direction.
 func (beam Beam) MovedInDirection(dir Direction) Beam {
 	updPosition := beam.position
 	switch dir {
@@ -113,6 +115,8 @@ func (beam Beam) MovedInDirection(dir Direction) Beam {
 	}
 }
 
+// RotatedInDirection returns a new beam, which is the result of this beam rotated to face that direction.
+// Its position is not updated.
 func (beam Beam) RotatedInDirection(dir Direction) Beam {
 	return Beam{
 		position:  beam.position,
@@ -146,13 +150,30 @@ func main() {
 		panic(fmt.Sprintf("failed to parse input: %s", err))
 	}
 
-	// grid.Print()
-
 	fmt.Printf("Part 1: %d\n", part1(grid))
+	fmt.Printf("Part 2: %d\n", part2(grid))
 }
 
 func part1(grid TileGrid) int {
 	startingBeam := Beam{position: Coordinate{row: 0, col: 0}, direction: DirectionEast}
+	return simulate(grid, startingBeam)
+}
+
+func part2(grid TileGrid) int {
+	startingBeams := allStartingBeams(grid)
+	maxEnergy := 0
+	for _, startingBeam := range startingBeams {
+		energy := simulate(grid, startingBeam)
+		if energy > maxEnergy {
+			maxEnergy = energy
+		}
+	}
+
+	return maxEnergy
+}
+
+// simulate will simulate the beam's movement starting at the given beam, returning the number of energized tiles
+func simulate(grid TileGrid, startingBeam Beam) int {
 	beams := []Beam{startingBeam}
 	nextBeams := []Beam{}
 	beamHistory := map[Beam]struct{}{
@@ -162,7 +183,7 @@ func part1(grid TileGrid) int {
 	for len(beams) > 0 {
 		for _, beam := range beams {
 			updBeam := beam.MovedInDirection(beam.direction)
-			tile, ok := grid.tiles[updBeam.position]
+			tile, ok := grid.Tiles[updBeam.position]
 			if ok {
 				resultingBeams := beamsFromCollision(tile, updBeam)
 				nextBeams = append(nextBeams, resultingBeams...)
@@ -191,6 +212,41 @@ func part1(grid TileGrid) int {
 	return len(visitedPositions)
 }
 
+// allStartingBeams gets all possible starting beams around the edges of the grid
+func allStartingBeams(grid TileGrid) []Beam {
+	startingBeams := []Beam{}
+	for col := 0; col < grid.Width; col++ {
+		topBeam := Beam{
+			direction: DirectionSouth,
+			position:  Coordinate{row: 0, col: col},
+		}
+
+		bottomBeam := Beam{
+			direction: DirectionNorth,
+			position:  Coordinate{row: grid.Height - 1, col: col},
+		}
+
+		startingBeams = append(startingBeams, topBeam, bottomBeam)
+	}
+
+	for row := 0; row < grid.Height; row++ {
+		leftBeam := Beam{
+			direction: DirectionEast,
+			position:  Coordinate{row: row, col: 0},
+		}
+
+		rightBeam := Beam{
+			direction: DirectionWest,
+			position:  Coordinate{row: row, col: grid.Width - 1},
+		}
+
+		startingBeams = append(startingBeams, leftBeam, rightBeam)
+	}
+
+	return startingBeams
+}
+
+// beamsFromCollision will get the resulting beams when a beam collides with a tile
 func beamsFromCollision(tile Tile, beam Beam) []Beam {
 	switch tile {
 	case TileMirrorLeft, TileMirrorRight:
@@ -202,6 +258,8 @@ func beamsFromCollision(tile Tile, beam Beam) []Beam {
 	}
 }
 
+// beamsFromSplitter gets the resulting beams when a bema collides with a splitter. Panics if the given tile
+// is not a splitter.
 func beamsFromSplitter(tile Tile, beam Beam) []Beam {
 	if tile != TileSplitterHorizontal && tile != TileSplitterVertical {
 		panic("cannot treat a non-splitter tile as a splitter")
@@ -227,6 +285,8 @@ func beamsFromSplitter(tile Tile, beam Beam) []Beam {
 	}
 }
 
+// beamsFromMirror gets the resulting beams (well, beam) when a beam collides with a mirror. Panics if the given tile
+// is not a mirror.
 func beamsFromMirror(tile Tile, beam Beam) []Beam {
 	switch tile {
 	case TileMirrorRight:
@@ -303,8 +363,8 @@ func parseTileGrid(inputLines []string) (TileGrid, error) {
 	}
 
 	return TileGrid{
-		height: height,
-		width:  width,
-		tiles:  tiles,
+		Height: height,
+		Width:  width,
+		Tiles:  tiles,
 	}, nil
 }

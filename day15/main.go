@@ -129,6 +129,21 @@ func part2(inputElements []string) int {
 		operation(hm)
 	}
 
+	return calculatePower(hm)
+}
+
+func hash(s string) int {
+	res := 0
+	for _, char := range s {
+		res += int(char)
+		res *= 17
+		res %= 256
+	}
+
+	return res
+}
+
+func calculatePower(hm HashMap[int]) int {
 	power := 0
 	for i := range hm {
 		boxEntries, err := hm.EntriesInBox(i)
@@ -144,17 +159,6 @@ func part2(inputElements []string) int {
 	}
 
 	return power
-}
-
-func hash(s string) int {
-	res := 0
-	for _, char := range s {
-		res += int(char)
-		res *= 17
-		res %= 256
-	}
-
-	return res
 }
 
 // findInList finds the given element in the linked list. The element *MUST* be of the type V, or this will panic

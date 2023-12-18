@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 )
 
 type Tile rune
@@ -161,12 +162,25 @@ func part1(grid TileGrid) int {
 
 func part2(grid TileGrid) int {
 	startingBeams := allStartingBeams(grid)
-	maxEnergy := 0
+	wg := sync.WaitGroup{}
+	answerChan := make(chan int)
 	for _, startingBeam := range startingBeams {
-		energy := simulate(grid, startingBeam)
-		if energy > maxEnergy {
-			maxEnergy = energy
-		}
+		wg.Add(1)
+		startingBeam := startingBeam
+		go func() {
+			answerChan <- simulate(grid, startingBeam)
+			wg.Done()
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(answerChan)
+	}()
+
+	maxEnergy := 0
+	for energy := range answerChan {
+		maxEnergy = max(energy, maxEnergy)
 	}
 
 	return maxEnergy

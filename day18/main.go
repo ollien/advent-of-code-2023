@@ -95,32 +95,48 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(plans))
+	fmt.Printf("Part 2: %d\n", part2(plans))
 }
 
-func part1(plans []Plan) int {
-	if len(plans) == 0 {
-		panic("cannot draw no plans!")
-	}
-
+func part1(plans []Plan) int64 {
 	drawn := drawPlans(plans)
 	verts, err := findVerts(drawn)
 	if err != nil {
 		panic(err)
 	}
 
-	area := 0
-	border := 0
+	return shoelaceArea(verts)
+}
+
+func part2(plans []Plan) int64 {
+	updPlans, err := convertPlansForPart2(plans)
+	if err != nil {
+		panic(err)
+	}
+
+	drawn := drawPlans(updPlans)
+	verts, err := findVerts(drawn)
+	if err != nil {
+		panic(err)
+	}
+
+	return shoelaceArea(verts)
+}
+
+func shoelaceArea(verts []Coordinate) int64 {
+	area := int64(0)
+	border := int64(0)
 	for i := 0; i < len(verts); i++ {
 		point1 := verts[i]
 		point2 := verts[(i+1)%len(verts)]
 
 		mat := NewMatrix(point1.Col, point2.Col, point1.Row, point2.Row)
-		area += mat.Det()
-		border += abs(point2.Row-point1.Row) + abs(point2.Col-point1.Col)
+		area += int64(mat.Det())
+		border += int64(abs(point2.Row-point1.Row) + abs(point2.Col-point1.Col))
 	}
 
-	// Why is this plus one necessary???
-	return (area+border)/2 + 1
+	// add 1 to include the starting point
+	return (area/2 + border/2) + 1
 }
 
 func drawPlans(plans []Plan) DrawnPlan {
@@ -172,6 +188,35 @@ func inDirection(coordinate Coordinate, direction Direction, n int) Coordinate {
 	}
 }
 
+func convertPlansForPart2(plans []Plan) ([]Plan, error) {
+	res := make([]Plan, len(plans))
+	for i, plan := range plans {
+		if len(plan.ColorCode) < 2 {
+			return nil, fmt.Errorf("item %d contained too view items in its color code", i)
+		}
+
+		directionCode := plan.ColorCode[len(plan.ColorCode)-1]
+		direction, err := directionFromNumericValue(string(directionCode))
+		if err != nil {
+			return nil, fmt.Errorf("item %d contained an invalid direction directive %c", i, directionCode)
+		}
+
+		encodedCount := plan.ColorCode[:len(plan.ColorCode)-1]
+		count, err := strconv.ParseInt(encodedCount, 16, 0)
+		if err != nil {
+			return nil, fmt.Errorf("item %d contained an invalid count directive %s", i, encodedCount)
+		}
+
+		res[i] = Plan{
+			Direction: direction,
+			Count:     int(count),
+			ColorCode: plan.ColorCode,
+		}
+	}
+
+	return res, nil
+}
+
 func parsePlans(inputLines []string) ([]Plan, error) {
 	return tryParse(inputLines, parsePlan)
 }
@@ -216,6 +261,21 @@ func directionFromAcronym(n string) (Direction, error) {
 	}
 }
 
+func directionFromNumericValue(n string) (Direction, error) {
+	switch n {
+	case "0":
+		return DirectionRight, nil
+	case "1":
+		return DirectionDown, nil
+	case "2":
+		return DirectionLeft, nil
+	case "3":
+		return DirectionUp, nil
+	default:
+		return DirectionUp, errors.New("invalid direction number")
+	}
+}
+
 func tryParse[T any](items []string, parse func(string) (T, error)) ([]T, error) {
 	res := make([]T, 0, len(items))
 	for i, item := range items {
@@ -228,24 +288,6 @@ func tryParse[T any](items []string, parse func(string) (T, error)) ([]T, error)
 	}
 
 	return res, nil
-}
-
-func mapKeys[T comparable, U any](m map[T]U) []T {
-	res := make([]T, 0, len(m))
-	for key := range m {
-		res = append(res, key)
-	}
-
-	return res
-}
-
-func popMapKey[T comparable, U any](m map[T]U) T {
-	for key := range m {
-		delete(m, key)
-		return key
-	}
-
-	panic("cannot pop empty map")
 }
 
 func abs(n int) int {

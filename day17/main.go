@@ -18,11 +18,16 @@ const (
 	DirectionWest
 )
 
-type Coordinate struct {
+type Location struct {
 	Row                 int
 	Col                 int
 	FromDirection       Direction
 	NumMovesInDirection int
+}
+
+type VisitedNode struct {
+	Coordinate      Location
+	LeftInDirection Direction
 }
 
 type Heap[T comparable] struct {
@@ -137,31 +142,48 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(grid))
-
+	fmt.Printf("Part 2: %d\n", part2(grid))
 }
 
 func part1(grid [][]int) int {
-	heuristic := func(pos Coordinate) int {
+	return doAStar(grid, func(_startPos Location, _direction Direction, neighbor Location) bool {
+		return neighbor.NumMovesInDirection > 2
+	})
+}
+
+func part2(grid [][]int) int {
+	return doAStar(grid, func(startPos Location, direction Direction, neighbor Location) bool {
+		// < 3 because we are considering the node we started with, rather than are moving to.
+		// In other words, if we have moved fewer than three times on the node we started at, we can't change directions
+		return (startPos.FromDirection.Opposite() != direction && startPos.NumMovesInDirection < 3) || (neighbor.FromDirection.Opposite() == direction && neighbor.NumMovesInDirection > 9)
+	})
+}
+
+// This is a really messy A* implementation I mostly lifted from wikipedia and adapted
+// After writing it, I learned of some clearer ways to write A*, but I stuck with this
+func doAStar(grid [][]int, skipNeighbor func(Location, Direction, Location) bool) int {
+	heuristic := func(pos Location) int {
 		endRow := len(grid)
 		endCol := len(grid[0])
 		return abs(endRow-pos.Row) + abs(endCol-pos.Col)
 	}
 
-	startingLocation := Coordinate{
+	// Each location must also consider the direction it was approached from and how many steps lead up to it
+	startingLocation := Location{
 		Row:                 0,
 		Col:                 0,
 		FromDirection:       DirectionWest,
 		NumMovesInDirection: 0,
 	}
-	estimatedDistances := map[Coordinate]int{
+	estimatedDistances := map[Location]int{
 		startingLocation: heuristic(startingLocation),
 	}
 
-	shortestDistances := map[Coordinate]int{
+	shortestDistances := map[Location]int{
 		startingLocation: 0,
 	}
 
-	toVisit := NewHeap[Coordinate](func(c1, c2 Coordinate) int {
+	toVisit := NewHeap[Location](func(c1, c2 Location) int {
 		estimatedC1Distance, haveC1Estimate := estimatedDistances[c1]
 		estimatedC2Distance, haveC2Estimate := estimatedDistances[c2]
 		if !haveC1Estimate && !haveC2Estimate {
@@ -177,7 +199,6 @@ func part1(grid [][]int) int {
 	})
 
 	toVisit.PushItem(startingLocation)
-	parents := make(map[Coordinate]VisitedNode)
 
 	firstVisit := true
 	for toVisit.Len() > 0 {
@@ -197,7 +218,7 @@ func part1(grid [][]int) int {
 			} else if searchPos.FromDirection == direction {
 				// can't turn around
 				continue
-			} else if neighborPos.NumMovesInDirection > 2 {
+			} else if skipNeighbor(searchPos, direction, neighborPos) {
 				// can't go straight too much
 				continue
 			}
@@ -221,17 +242,17 @@ func part1(grid [][]int) int {
 	panic("search failed to find an element")
 }
 
-func neighbors(coordinate Coordinate) map[Direction]Coordinate {
-	res := map[Direction]Coordinate{
-		DirectionNorth: {Row: coordinate.Row - 1, Col: coordinate.Col, FromDirection: DirectionSouth},
-		DirectionSouth: {Row: coordinate.Row + 1, Col: coordinate.Col, FromDirection: DirectionNorth},
-		DirectionWest:  {Row: coordinate.Row, Col: coordinate.Col - 1, FromDirection: DirectionEast},
-		DirectionEast:  {Row: coordinate.Row, Col: coordinate.Col + 1, FromDirection: DirectionWest},
+func neighbors(loc Location) map[Direction]Location {
+	res := map[Direction]Location{
+		DirectionNorth: {Row: loc.Row - 1, Col: loc.Col, FromDirection: DirectionSouth},
+		DirectionSouth: {Row: loc.Row + 1, Col: loc.Col, FromDirection: DirectionNorth},
+		DirectionWest:  {Row: loc.Row, Col: loc.Col - 1, FromDirection: DirectionEast},
+		DirectionEast:  {Row: loc.Row, Col: loc.Col + 1, FromDirection: DirectionWest},
 	}
 
-	inLastDirection := res[coordinate.FromDirection.Opposite()]
-	inLastDirection.NumMovesInDirection = coordinate.NumMovesInDirection + 1
-	res[coordinate.FromDirection.Opposite()] = inLastDirection
+	inLastDirection := res[loc.FromDirection.Opposite()]
+	inLastDirection.NumMovesInDirection = loc.NumMovesInDirection + 1
+	res[loc.FromDirection.Opposite()] = inLastDirection
 
 	return res
 }

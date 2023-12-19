@@ -135,7 +135,12 @@ func shoelaceArea(verts []Coordinate) int64 {
 		border += int64(abs(point2.Row-point1.Row) + abs(point2.Col-point1.Col))
 	}
 
-	// add 1 to include the starting point
+	// I arrived at this with a bit of guessing, and I don't think my reasoning is 100% solid (but it turns out
+	// this is actually Pick's thereom, which is cool)
+	//
+	// - area/2 comes from shoelace thereom
+	// - divide the borer by two because our border tiles have "width" that we don't want to double count
+	// - add 1 to include the starting point (this I am the least confident about but I was off-by-one)
 	return (area/2 + border/2) + 1
 }
 
@@ -236,7 +241,7 @@ func parsePlan(rawPlan string) (Plan, error) {
 	count, err := strconv.Atoi(matches[2])
 	if err != nil {
 		// Can't happen by the expression pattern
-		panic(fmt.Sprintf("failed to parse %s as number: %w", matches[2], err))
+		panic(fmt.Sprintf("failed to parse %s as number: %s", matches[2], err))
 	}
 
 	return Plan{

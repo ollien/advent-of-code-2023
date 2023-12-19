@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -29,6 +29,43 @@ type Plan struct {
 type Coordinate struct {
 	Row int
 	Col int
+}
+
+type Range struct {
+	// start and end are inclusive
+	start Coordinate
+	end   Coordinate
+}
+
+type DrawnPlan []Range
+type Matrix [2][2]int
+
+func NewMatrix(a, b, c, d int) Matrix {
+	return [2][2]int{
+		{a, b},
+		{c, d},
+	}
+}
+
+func NewRange(start Coordinate, direction Direction, count int) Range {
+	end := inDirection(start, direction, count)
+
+	return Range{
+		start: start,
+		end:   end,
+	}
+}
+
+func (mat Matrix) Det() int {
+	return mat[0][0]*mat[1][1] - mat[0][1]*mat[1][0]
+}
+
+func (r Range) Start() Coordinate {
+	return r.start
+}
+
+func (r Range) End() Coordinate {
+	return r.end
 }
 
 func main() {
@@ -66,125 +103,70 @@ func part1(plans []Plan) int {
 	}
 
 	drawn := drawPlans(plans)
-	emptySpaces := emptySpacesInDrawing(drawn)
-	for len(emptySpaces) > 0 {
-		empty := popMapKey(emptySpaces)
-		seen, outside := flood(drawn, empty)
-		if outside {
-			for _, pos := range seen {
-				delete(emptySpaces, pos)
-			}
-		} else {
-			return len(seen) + len(drawn)
-		}
+	verts, err := findVerts(drawn)
+	if err != nil {
+		panic(err)
 	}
 
-	panic("found no interior items")
+	area := 0
+	border := 0
+	for i := 0; i < len(verts); i++ {
+		point1 := verts[i]
+		point2 := verts[(i+1)%len(verts)]
+
+		mat := NewMatrix(point1.Col, point2.Col, point1.Row, point2.Row)
+		area += mat.Det()
+		border += abs(point2.Row-point1.Row) + abs(point2.Col-point1.Col)
+	}
+
+	// Why is this plus one necessary???
+	return (area+border)/2 + 1
 }
 
-func drawPlans(plans []Plan) map[Coordinate]string {
+func drawPlans(plans []Plan) DrawnPlan {
 	cursor := Coordinate{Row: 0, Col: 0}
-	drawn := map[Coordinate]string{}
+	drawn := DrawnPlan{}
 	for _, plan := range plans {
-		for i := 0; i < plan.Count; i++ {
-			cursor = inDirection(cursor, plan.Direction)
-			drawn[cursor] = plan.ColorCode
-		}
+		r := NewRange(cursor, plan.Direction, plan.Count)
+		drawn = append(drawn, r)
+		cursor = r.End()
 	}
 
 	return drawn
 }
 
-func drawingBounds(drawn map[Coordinate]string) (minRow, maxRow, minCol, maxCol int) {
-	if len(drawn) == 0 {
-		panic("cannot get bounds of empty drawing")
-	}
+func findVerts(drawn DrawnPlan) ([]Coordinate, error) {
+	startingPoint := drawn[0].Start()
+	cursor := drawn[0]
+	verts := []Coordinate{}
+	for {
+		idx := slices.IndexFunc(drawn, func(r Range) bool {
+			return r.Start() == cursor.End()
+		})
 
-	minRow = math.MaxInt
-	minCol = math.MaxInt
-	for position := range drawn {
-		minRow = min(position.Row, minRow)
-		minCol = min(position.Col, minCol)
-		maxRow = max(position.Row, maxRow)
-		maxCol = max(position.Col, maxCol)
-	}
-
-	return
-}
-
-func emptySpacesInDrawing(drawn map[Coordinate]string) map[Coordinate]struct{} {
-	minRow, maxRow, minCol, maxCol := drawingBounds(drawn)
-	emptySpaces := map[Coordinate]struct{}{}
-	for row := minRow; row <= maxRow; row++ {
-		for col := minCol; col <= maxCol; col++ {
-			position := Coordinate{Row: row, Col: col}
-			_, ok := drawn[position]
-			if !ok {
-				emptySpaces[position] = struct{}{}
-			}
-		}
-	}
-
-	return emptySpaces
-}
-
-// flood is a floodFill algorithm that will return the empty tiles flooded, and whether or not the exterior
-// border was hit.
-func flood(drawn map[Coordinate]string, seed Coordinate) (flooded []Coordinate, outside bool) {
-	if _, ok := drawn[seed]; ok {
-		// We can't flood a fille space
-		return []Coordinate{}, true
-	}
-
-	outsideHit := false
-	minRow, maxRow, minCol, maxCol := drawingBounds(drawn)
-	visited := map[Coordinate]struct{}{}
-	emptyVisited := []Coordinate{}
-	toVisit := []Coordinate{seed}
-	for len(toVisit) > 0 {
-		visiting := toVisit[0]
-		toVisit = toVisit[1:]
-		if _, ok := visited[visiting]; ok {
-			continue
+		if idx == -1 {
+			return nil, errors.New("input is not a loop")
 		}
 
-		visited[visiting] = struct{}{}
-		emptyVisited = append(emptyVisited, visiting)
+		cursor = drawn[idx]
+		verts = append(verts, cursor.Start())
 
-		for _, neighbor := range neighbors(visiting) {
-			if _, ok := drawn[neighbor]; ok {
-				continue
-			} else if neighbor.Row < minRow || neighbor.Row > maxRow || neighbor.Col < minCol || neighbor.Col > maxCol {
-				outsideHit = true
-				continue
-			}
-
-			toVisit = append(toVisit, neighbor)
+		if cursor.Start() == startingPoint {
+			return verts, nil
 		}
 	}
-
-	return emptyVisited, outsideHit
 }
 
-func neighbors(coordinate Coordinate) []Coordinate {
-	return []Coordinate{
-		{Row: coordinate.Row + 1, Col: coordinate.Col},
-		{Row: coordinate.Row - 1, Col: coordinate.Col},
-		{Row: coordinate.Row, Col: coordinate.Col + 1},
-		{Row: coordinate.Row, Col: coordinate.Col - 1},
-	}
-}
-
-func inDirection(coordinate Coordinate, direction Direction) Coordinate {
+func inDirection(coordinate Coordinate, direction Direction, n int) Coordinate {
 	switch direction {
 	case DirectionUp:
-		return Coordinate{Row: coordinate.Row - 1, Col: coordinate.Col}
+		return Coordinate{Row: coordinate.Row - n, Col: coordinate.Col}
 	case DirectionDown:
-		return Coordinate{Row: coordinate.Row + 1, Col: coordinate.Col}
+		return Coordinate{Row: coordinate.Row + n, Col: coordinate.Col}
 	case DirectionLeft:
-		return Coordinate{Row: coordinate.Row, Col: coordinate.Col - 1}
+		return Coordinate{Row: coordinate.Row, Col: coordinate.Col - n}
 	case DirectionRight:
-		return Coordinate{Row: coordinate.Row, Col: coordinate.Col + 1}
+		return Coordinate{Row: coordinate.Row, Col: coordinate.Col + n}
 	default:
 		panic(fmt.Sprintf("invalid direction %d", direction))
 	}
@@ -264,4 +246,12 @@ func popMapKey[T comparable, U any](m map[T]U) T {
 	}
 
 	panic("cannot pop empty map")
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+
+	return n
 }

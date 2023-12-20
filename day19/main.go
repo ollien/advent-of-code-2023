@@ -10,6 +10,22 @@ import (
 	"strings"
 )
 
+type PartRatingType rune
+
+const (
+	RatingTypeX PartRatingType = 'x'
+	RatingTypeM PartRatingType = 'm'
+	RatingTypeA PartRatingType = 'a'
+	RatingTypeS PartRatingType = 's'
+)
+
+type ComparisonOperator rune
+
+const (
+	OperatorGreater ComparisonOperator = '>'
+	OperatorLess    ComparisonOperator = '<'
+)
+
 type Part struct {
 	XtremelyCoolRating int
 	MusicalRating      int
@@ -17,11 +33,42 @@ type Part struct {
 	ShinyRating        int
 }
 
+type Rule struct {
+	Conditions          []RuleCondition
+	FallbackDestination string
+}
+
 type RuleCondition struct {
-	PartRatingFunc     func(Part) int
-	OperatorFunc       func(int, int) bool
+	PartRatingType     PartRatingType
+	Operator           ComparisonOperator
 	Operand            int
 	SuccessDestination string
+}
+
+func (part Part) Rating(ratingType PartRatingType) int {
+	switch ratingType {
+	case RatingTypeX:
+		return part.XtremelyCoolRating
+	case RatingTypeM:
+		return part.MusicalRating
+	case RatingTypeA:
+		return part.AerodynamicRating
+	case RatingTypeS:
+		return part.ShinyRating
+	default:
+		panic(fmt.Sprintf("invalid rating type %c", ratingType))
+	}
+}
+
+func (operator ComparisonOperator) Compare(a, b int) bool {
+	switch operator {
+	case OperatorGreater:
+		return a > b
+	case OperatorLess:
+		return a < b
+	default:
+		panic(fmt.Sprintf("invalid operator %c", operator))
+	}
 }
 
 func main() {
@@ -64,10 +111,15 @@ func main() {
 	fmt.Printf("Part 1: %d\n", part1(rules, parts))
 }
 
-func part1(rules map[string]func(Part) string, parts []Part) int {
+func part1(rules map[string]Rule, parts []Part) int {
+	ruleFuncs := make(map[string]func(Part) string, len(rules))
+	for ruleName, rule := range rules {
+		ruleFuncs[ruleName] = buildRuleFunc(rule)
+	}
+
 	acceptedParts := []Part{}
 	for _, part := range parts {
-		accepted, err := isPartAccepted(rules, part)
+		accepted, err := isPartAccepted(ruleFuncs, part)
 		if err != nil {
 			panic(fmt.Sprintf("could not process part %v: %s", part, err))
 		}
@@ -135,26 +187,26 @@ func parsePart(input string) (Part, error) {
 	}, nil
 }
 
-func parseRules(inputLines []string) (map[string]func(Part) string, error) {
-	rules := make(map[string]func(Part) string, len(inputLines))
+func parseRules(inputLines []string) (map[string]Rule, error) {
+	rules := make(map[string]Rule, len(inputLines))
 	for i, rawRule := range inputLines {
-		ruleName, findDest, err := parseRule(rawRule)
+		ruleName, rule, err := parseRule(rawRule)
 		if err != nil {
 			return nil, fmt.Errorf("invalid rule #%d: %w", i, err)
 		}
 
-		rules[ruleName] = findDest
+		rules[ruleName] = rule
 	}
 
 	return rules, nil
 }
 
-func parseRule(rawRule string) (string, func(Part) string, error) {
+func parseRule(rawRule string) (string, Rule, error) {
 	declarationsPattern := regexp.MustCompile(`^([a-z]+)\{((?:[xmas][<>]\d+:[a-zAR]+,)+)([a-zAR]+)\}$`)
 	declarationMatches := declarationsPattern.FindStringSubmatch(rawRule)
 	if declarationMatches == nil {
 		fmt.Println(rawRule)
-		return "", nil, errors.New("malformed declarations")
+		return "", Rule{}, errors.New("malformed declarations")
 	}
 
 	name := declarationMatches[1]
@@ -163,17 +215,20 @@ func parseRule(rawRule string) (string, func(Part) string, error) {
 
 	conditions, err := parseRuleConditions(rawConditions)
 	if err != nil {
-		return "", nil, fmt.Errorf("parse conditions: %w", err)
+		return "", Rule{}, fmt.Errorf("parse conditions: %w", err)
 	}
 
-	destinationFunc := buildRuleFunc(conditions, fallbackDestination)
+	rule := Rule{
+		Conditions:          conditions,
+		FallbackDestination: fallbackDestination,
+	}
 
-	return name, destinationFunc, nil
+	return name, rule, nil
 }
 
-func buildRuleFunc(conditions []RuleCondition, fallbackDestination string) func(Part) string {
+func buildRuleFunc(rule Rule) func(Part) string {
 	baseFunc := func(Part) string {
-		return fallbackDestination
+		return rule.FallbackDestination
 	}
 
 	// We must store all of the destination functions, otherwise we will
@@ -183,12 +238,12 @@ func buildRuleFunc(conditions []RuleCondition, fallbackDestination string) func(
 		return destFuncs[0](part)
 	}
 
-	for i := len(conditions) - 1; i >= 0; i-- {
-		condition := conditions[i]
+	for i := len(rule.Conditions) - 1; i >= 0; i-- {
+		condition := rule.Conditions[i]
 		lastFunc := destFuncs[len(destFuncs)-1]
 		ruleDestFunc := func(part Part) string {
-			value := condition.PartRatingFunc(part)
-			if condition.OperatorFunc(value, condition.Operand) {
+			value := part.Rating(condition.PartRatingType)
+			if condition.Operator.Compare(value, condition.Operand) {
 				return condition.SuccessDestination
 			} else {
 				return lastFunc(part)
@@ -205,18 +260,6 @@ func buildRuleFunc(conditions []RuleCondition, fallbackDestination string) func(
 func parseRuleConditions(rawConditions string) ([]RuleCondition, error) {
 	conditionPattern := regexp.MustCompile(`^([xmas])([<>])(\d+):([a-zAR]+)$`)
 
-	operatorFuncs := map[string]func(int, int) bool{
-		"<": func(i1, i2 int) bool { return i1 < i2 },
-		">": func(i1, i2 int) bool { return i1 > i2 },
-	}
-
-	variableFuncs := map[string]func(Part) int{
-		"x": func(part Part) int { return part.XtremelyCoolRating },
-		"m": func(part Part) int { return part.MusicalRating },
-		"a": func(part Part) int { return part.AerodynamicRating },
-		"s": func(part Part) int { return part.ShinyRating },
-	}
-
 	splitRawConditions := strings.Split(strings.TrimRight(rawConditions, ","), ",")
 	conditions := make([]RuleCondition, len(splitRawConditions))
 	for i, rawCondition := range splitRawConditions {
@@ -225,8 +268,10 @@ func parseRuleConditions(rawConditions string) ([]RuleCondition, error) {
 			return nil, fmt.Errorf("malformed condition %q", rawCondition)
 		}
 
-		variable := conditionMatches[1]
-		operator := conditionMatches[2]
+		// These first two are definitely safe, because the pattern restricts
+		// these values to single-chars that are available in their types
+		ratingType := PartRatingType(conditionMatches[1][0])
+		operator := ComparisonOperator(conditionMatches[2][0])
 		rawOperand := conditionMatches[3]
 		destination := conditionMatches[4]
 
@@ -236,19 +281,9 @@ func parseRuleConditions(rawConditions string) ([]RuleCondition, error) {
 			panic(fmt.Sprintf("could not parse condition: %s", err))
 		}
 
-		operatorFunc, ok := operatorFuncs[operator]
-		if !ok {
-			panic(fmt.Sprintf("invalid operator %s", operator))
-		}
-
-		variableFunc, ok := variableFuncs[variable]
-		if !ok {
-			panic(fmt.Sprintf("invalid rating variable %s", variable))
-		}
-
 		conditions[i] = RuleCondition{
-			PartRatingFunc:     variableFunc,
-			OperatorFunc:       operatorFunc,
+			PartRatingType:     ratingType,
+			Operator:           operator,
 			Operand:            operand,
 			SuccessDestination: destination,
 		}

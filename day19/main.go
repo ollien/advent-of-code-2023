@@ -1,3 +1,5 @@
+// TOO HIGH  288057819955899
+
 package main
 
 import (
@@ -45,6 +47,12 @@ type RuleCondition struct {
 	SuccessDestination string
 }
 
+type Range struct {
+	// both are inclusive
+	min int
+	max int
+}
+
 func (part Part) Rating(ratingType PartRatingType) int {
 	switch ratingType {
 	case RatingTypeX:
@@ -68,6 +76,65 @@ func (operator ComparisonOperator) Compare(a, b int) bool {
 		return a < b
 	default:
 		panic(fmt.Sprintf("invalid operator %c", operator))
+	}
+}
+
+func (r Range) Min() int {
+	return r.min
+}
+
+func (r Range) Max() int {
+	return r.max
+}
+
+func (r Range) Empty() bool {
+	return r.min > r.max
+}
+
+func (r Range) EliminateLessThan(n int) Range {
+	if r.Empty() {
+		return r
+	}
+
+	if n > r.min {
+		r.min = n
+	}
+
+	return r
+}
+
+func (r Range) EliminateLessThanEq(n int) Range {
+	return r.EliminateLessThan(n + 1)
+}
+
+func (r Range) EliminateGreaterThan(n int) Range {
+	if r.Empty() {
+		return r
+	}
+
+	if n < r.max {
+		r.max = n
+	}
+
+	return r
+}
+
+func (r Range) EliminateGreaterThanEq(n int) Range {
+	return r.EliminateGreaterThan(n - 1)
+}
+
+func (r Range) Spread() int {
+	if r.Empty() {
+		return 0
+	}
+
+	return r.max - r.min + 1
+}
+
+func (r Range) Intersection(other Range) Range {
+	return Range{
+		min: max(r.min, other.min),
+		max: min(r.max, other.max),
 	}
 }
 
@@ -109,6 +176,7 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(rules, parts))
+	fmt.Printf("Part 2: %d\n", part2(rules))
 }
 
 func part1(rules map[string]Rule, parts []Part) int {
@@ -140,6 +208,17 @@ func part1(rules map[string]Rule, parts []Part) int {
 	return acceptedRatings
 }
 
+func part2(rules map[string]Rule) int {
+	ranges := map[PartRatingType]Range{
+		RatingTypeX: {min: 1, max: 4000},
+		RatingTypeM: {min: 1, max: 4000},
+		RatingTypeA: {min: 1, max: 4000},
+		RatingTypeS: {min: 1, max: 4000},
+	}
+
+	return combinationsSatisfyingRules(rules, "in", ranges)
+}
+
 func isPartAccepted(rules map[string]func(Part) string, part Part) (bool, error) {
 	startRule, ok := rules["in"]
 	if !ok {
@@ -160,6 +239,51 @@ func isPartAccepted(rules map[string]func(Part) string, part Part) (bool, error)
 			return false, fmt.Errorf("could not locate rule %q", nextRuleName)
 		}
 	}
+}
+
+func combinationsSatisfyingRules(rules map[string]Rule, currentRule string, ranges map[PartRatingType]Range) int {
+	if currentRule == "R" {
+		return 0
+	} else if currentRule == "A" {
+		combos := 1
+		for _, r := range ranges {
+			combos *= r.Spread()
+		}
+
+		return combos
+	}
+
+	rule, ok := rules[currentRule]
+	if !ok {
+		panic(fmt.Sprintf("invalid rule %s", currentRule))
+	}
+
+	combos := 0
+	culledRanges := cloneMap(ranges)
+	for _, condition := range rule.Conditions {
+		affectedRange, ok := culledRanges[condition.PartRatingType]
+		if !ok {
+			panic(fmt.Sprintf("invalid part rating type %d", condition.PartRatingType))
+		}
+
+		if condition.Operator == OperatorGreater {
+			updRanges := cloneMap(culledRanges)
+			updRanges[condition.PartRatingType] = affectedRange.EliminateLessThanEq(condition.Operand)
+			combos += combinationsSatisfyingRules(rules, condition.SuccessDestination, updRanges)
+
+			culledRanges[condition.PartRatingType] = affectedRange.EliminateGreaterThan(condition.Operand)
+		} else if condition.Operator == OperatorLess {
+			updRanges := cloneMap(culledRanges)
+			updRanges[condition.PartRatingType] = affectedRange.EliminateGreaterThanEq(condition.Operand)
+			combos += combinationsSatisfyingRules(rules, condition.SuccessDestination, updRanges)
+
+			culledRanges[condition.PartRatingType] = affectedRange.EliminateLessThan(condition.Operand)
+		} else {
+			panic(fmt.Sprintf("invalid operator %c", condition.Operand))
+		}
+	}
+
+	return combos + combinationsSatisfyingRules(rules, rule.FallbackDestination, culledRanges)
 }
 
 func parseParts(inputLines []string) ([]Part, error) {
@@ -304,4 +428,13 @@ func tryParse[T any](items []string, parse func(string) (T, error)) ([]T, error)
 	}
 
 	return res, nil
+}
+
+func cloneMap[T comparable, U any, M ~map[T]U](m M) M {
+	copy := make(M, len(m))
+	for key, value := range m {
+		copy[key] = value
+	}
+
+	return copy
 }

@@ -1,0 +1,6 @@
+Part 2 wasn't really code-based. I made a graphviz visualization of my input (script to do so is in this repo)
+and then I stared at it with intent, until I realized there were four "sections" that needed to line up at the
+same time. I realized this seemed like an LCM problem, so I found all the times that the "sections" emitted
+to the central conjunctions, and took the LCM of that, since this is cyclical.
+
+I left my print statements in the solution so you can try it :)

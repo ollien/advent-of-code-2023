@@ -20,6 +20,9 @@ type Coordinate struct {
 
 type Brick []Coordinate
 
+// BrickGraph is a map from indexes in a brick array to the dependent indexes
+type BrickGraph map[int][]int
+
 func (b Brick) HighestPoint() Coordinate {
 	maxZFunc := func(a, b Coordinate) int {
 		return cmp.Compare(a.Z, b.Z)
@@ -84,32 +87,66 @@ func part1(inputBricks []Brick) int {
 		slammedBricks[i] = brick
 	}
 
-	safeBricks := []Brick{}
-	for i, brick := range slammedBricks {
-		withoutBrick := slices.Delete(slices.Clone(slammedBricks), i, i+1)
-		safe := true
-		for j, original := range withoutBrick {
-			if original.LowestPoint().Z < brick.HighestPoint().Z {
-				continue
-			}
-			upd, err := moveBrickDown(withoutBrick, j)
-			if err != nil {
-				// can't happen with our bounds
-				panic(err)
-			}
+	incoming, outgoing := buildBrickGraph(slammedBricks)
 
-			if !slices.Equal(upd, original) {
-				safe = false
+	removable := 0
+	for i := range bricks {
+		dependents := outgoing[i]
+		// Nothing depends on this, so it's ok to remove
+		if len(dependents) == 0 {
+			removable++
+			continue
+		}
+
+		allDependentsSafe := true
+		for _, dependent := range dependents {
+			// There is more than one item which has this dependent as a dependent, so removing i would
+			// not allow this to fall
+			if len(incoming[dependent]) <= 1 {
+				allDependentsSafe = false
 				break
 			}
 		}
 
-		if safe {
-			safeBricks = append(safeBricks, brick)
+		if allDependentsSafe {
+			removable++
 		}
 	}
 
-	return len(safeBricks)
+	return removable
+}
+
+func buildBrickGraph(bricks []Brick) (incoming, outgoing BrickGraph) {
+	occupied := occupiedPositions(bricks)
+	outgoing = make(BrickGraph)
+	incoming = make(BrickGraph)
+
+	for i, brick := range bricks {
+		neighboring := map[int]struct{}{}
+		for _, block := range brick {
+			above := Coordinate{X: block.X, Y: block.Y, Z: block.Z + 1}
+			if occupiedBy, ok := occupied[above]; ok && occupiedBy != i {
+				neighboring[occupiedBy] = struct{}{}
+			}
+		}
+
+		for neighbor := range neighboring {
+			outgoing[i] = append(outgoing[i], neighbor)
+			incoming[neighbor] = append(incoming[neighbor], i)
+		}
+	}
+
+	// start := 'A'
+	// for i, item := range bricks {
+	// 	// name := start + rune(i)
+	// 	fmt.Printf("%d[label=\"%d\\n%v\"]\n", i, i, item)
+	// 	for _, dependency := range outgoing[i] {
+	// 		// depName := start + rune(dependency)
+	// 		fmt.Printf("%d -> %d\n", i, dependency)
+	// 	}
+	// }
+
+	return
 }
 
 func moveBrickDown(bricks []Brick, brickIdx int) (Brick, error) {

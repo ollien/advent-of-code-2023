@@ -23,12 +23,31 @@ type Brick []Coordinate
 // BrickGraph is a map from indexes in a brick array to the dependent indexes
 type BrickGraph map[int][]int
 
-func (b Brick) HighestPoint() Coordinate {
-	maxZFunc := func(a, b Coordinate) int {
-		return cmp.Compare(a.Z, b.Z)
+func (graph BrickGraph) ReachableFrom(idx int) map[int]struct{} {
+	return graph.ReachableFromExcluding(idx, nil)
+}
+
+// ReachableFromExcluding will finds all nodes reachable from the given node index, but will not explore neighbors
+// in the "excluding" set.
+func (graph BrickGraph) ReachableFromExcluding(idx int, excluding map[int]struct{}) map[int]struct{} {
+	visited := map[int]struct{}{}
+	toVisit := []int{idx}
+	for len(toVisit) > 0 {
+		visiting := toVisit[0]
+		toVisit = toVisit[1:]
+		for _, neighbor := range graph[visiting] {
+			if _, ok := visited[neighbor]; ok {
+				continue
+			} else if _, ok := excluding[neighbor]; ok {
+				continue
+			}
+
+			visited[neighbor] = struct{}{}
+			toVisit = append(toVisit, neighbor)
+		}
 	}
 
-	return slices.MaxFunc(b, maxZFunc)
+	return visited
 }
 
 func (b Brick) LowestPoint() Coordinate {
@@ -70,14 +89,73 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(bricks))
+	fmt.Printf("Part 2: %d\n", part2(bricks))
 }
 
 func part1(inputBricks []Brick) int {
-	bricks := slices.Clone(inputBricks)
-	sortByHeight(bricks)
+	slammedBricks := settleBricks(inputBricks)
+	incoming, outgoing := buildBrickGraph(slammedBricks)
+	removable := removableBricks(slammedBricks, incoming, outgoing)
 
-	slammedBricks := slices.Clone(bricks)
-	for i := range bricks {
+	return len(removable)
+}
+
+func part2(inputBricks []Brick) int {
+	slammedBricks := settleBricks(inputBricks)
+	incoming, outgoing := buildBrickGraph(slammedBricks)
+	total := 0
+	for i := range slammedBricks {
+		stableNodes := map[int]struct{}{}
+		lastFalling := map[int]struct{}{}
+		for {
+			reachableNodes := outgoing.ReachableFromExcluding(i, stableNodes)
+			for reachable := range reachableNodes {
+				for _, parentOfReachable := range incoming[reachable] {
+					if _, ok := reachableNodes[parentOfReachable]; !ok && parentOfReachable != i {
+						// If any reachable node is accessible from another subgraph, it is "stable"
+						stableNodes[reachable] = struct{}{}
+					}
+				}
+			}
+
+			falling := outgoing.ReachableFromExcluding(i, stableNodes)
+			shouldBreak := mapKeysEqual(falling, lastFalling)
+			lastFalling = falling
+			if shouldBreak {
+				break
+			}
+
+			// We must repeat this process until we reach a state where no more stable nodes are found
+			// There are some cases where a node might be stable, but the children of said stable node
+			// must also be considered invalidated (think of it as second-order stability)
+		}
+
+		total += len(lastFalling)
+	}
+
+	return total
+}
+
+func mapKeysEqual[T comparable, U any](m1, m2 map[T]U) bool {
+	if len(m1) != len(m2) {
+		return false
+	}
+
+	for key := range m1 {
+		if _, ok := m2[key]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func settleBricks(bricks []Brick) []Brick {
+	sorted := slices.Clone(bricks)
+	sortByHeight(sorted)
+
+	slammedBricks := slices.Clone(sorted)
+	for i := range sorted {
 		brick, err := moveBrickDown(slammedBricks, i)
 		if err != nil {
 			// can't happen with our bounds
@@ -87,66 +165,7 @@ func part1(inputBricks []Brick) int {
 		slammedBricks[i] = brick
 	}
 
-	incoming, outgoing := buildBrickGraph(slammedBricks)
-
-	removable := 0
-	for i := range bricks {
-		dependents := outgoing[i]
-		// Nothing depends on this, so it's ok to remove
-		if len(dependents) == 0 {
-			removable++
-			continue
-		}
-
-		allDependentsSafe := true
-		for _, dependent := range dependents {
-			// There is more than one item which has this dependent as a dependent, so removing i would
-			// not allow this to fall
-			if len(incoming[dependent]) <= 1 {
-				allDependentsSafe = false
-				break
-			}
-		}
-
-		if allDependentsSafe {
-			removable++
-		}
-	}
-
-	return removable
-}
-
-func buildBrickGraph(bricks []Brick) (incoming, outgoing BrickGraph) {
-	occupied := occupiedPositions(bricks)
-	outgoing = make(BrickGraph)
-	incoming = make(BrickGraph)
-
-	for i, brick := range bricks {
-		neighboring := map[int]struct{}{}
-		for _, block := range brick {
-			above := Coordinate{X: block.X, Y: block.Y, Z: block.Z + 1}
-			if occupiedBy, ok := occupied[above]; ok && occupiedBy != i {
-				neighboring[occupiedBy] = struct{}{}
-			}
-		}
-
-		for neighbor := range neighboring {
-			outgoing[i] = append(outgoing[i], neighbor)
-			incoming[neighbor] = append(incoming[neighbor], i)
-		}
-	}
-
-	// start := 'A'
-	// for i, item := range bricks {
-	// 	// name := start + rune(i)
-	// 	fmt.Printf("%d[label=\"%d\\n%v\"]\n", i, i, item)
-	// 	for _, dependency := range outgoing[i] {
-	// 		// depName := start + rune(dependency)
-	// 		fmt.Printf("%d -> %d\n", i, dependency)
-	// 	}
-	// }
-
-	return
+	return slammedBricks
 }
 
 func moveBrickDown(bricks []Brick, brickIdx int) (Brick, error) {
@@ -170,6 +189,52 @@ func moveBrickDown(bricks []Brick, brickIdx int) (Brick, error) {
 	}
 
 	return brick, nil
+}
+
+func buildBrickGraph(bricks []Brick) (incoming, outgoing BrickGraph) {
+	occupied := occupiedPositions(bricks)
+	outgoing = make(BrickGraph)
+	incoming = make(BrickGraph)
+
+	for i, brick := range bricks {
+		neighboring := map[int]struct{}{}
+		for _, block := range brick {
+			above := Coordinate{X: block.X, Y: block.Y, Z: block.Z + 1}
+			if occupiedBy, ok := occupied[above]; ok && occupiedBy != i {
+				neighboring[occupiedBy] = struct{}{}
+			}
+		}
+
+		for neighbor := range neighboring {
+			outgoing[i] = append(outgoing[i], neighbor)
+			incoming[neighbor] = append(incoming[neighbor], i)
+		}
+	}
+
+	return
+}
+
+func removableBricks(allBricks []Brick, incoming BrickGraph, outgoing BrickGraph) []int {
+	removable := []int{}
+	for i := range allBricks {
+		dependents := outgoing[i]
+		allDependentsSafe := true
+		for _, dependent := range dependents {
+			// There is more than one item which has this dependent as a dependent, so removing i would
+			// not allow this to fall
+			if len(incoming[dependent]) <= 1 {
+				allDependentsSafe = false
+				break
+			}
+		}
+
+		if allDependentsSafe {
+			removable = append(removable, i)
+		}
+
+	}
+
+	return removable
 }
 
 func sortByHeight(bricks []Brick) {

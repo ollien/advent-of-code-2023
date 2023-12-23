@@ -94,60 +94,19 @@ func main() {
 
 func part1(inputBricks []Brick) int {
 	slammedBricks := settleBricks(inputBricks)
-	incoming, outgoing := buildBrickGraph(slammedBricks)
-	removable := removableBricks(slammedBricks, incoming, outgoing)
+	removable := removableBricks(slammedBricks)
 
 	return len(removable)
 }
 
 func part2(inputBricks []Brick) int {
 	slammedBricks := settleBricks(inputBricks)
-	incoming, outgoing := buildBrickGraph(slammedBricks)
 	total := 0
 	for i := range slammedBricks {
-		stableNodes := map[int]struct{}{}
-		lastFalling := map[int]struct{}{}
-		for {
-			reachableNodes := outgoing.ReachableFromExcluding(i, stableNodes)
-			for reachable := range reachableNodes {
-				for _, parentOfReachable := range incoming[reachable] {
-					if _, ok := reachableNodes[parentOfReachable]; !ok && parentOfReachable != i {
-						// If any reachable node is accessible from another subgraph, it is "stable"
-						stableNodes[reachable] = struct{}{}
-					}
-				}
-			}
-
-			falling := outgoing.ReachableFromExcluding(i, stableNodes)
-			shouldBreak := mapKeysEqual(falling, lastFalling)
-			lastFalling = falling
-			if shouldBreak {
-				break
-			}
-
-			// We must repeat this process until we reach a state where no more stable nodes are found
-			// There are some cases where a node might be stable, but the children of said stable node
-			// must also be considered invalidated (think of it as second-order stability)
-		}
-
-		total += len(lastFalling)
+		total += numBricksFallingByRemoval(slammedBricks, i)
 	}
 
 	return total
-}
-
-func mapKeysEqual[T comparable, U any](m1, m2 map[T]U) bool {
-	if len(m1) != len(m2) {
-		return false
-	}
-
-	for key := range m1 {
-		if _, ok := m2[key]; !ok {
-			return false
-		}
-	}
-
-	return true
 }
 
 func settleBricks(bricks []Brick) []Brick {
@@ -214,7 +173,9 @@ func buildBrickGraph(bricks []Brick) (incoming, outgoing BrickGraph) {
 	return
 }
 
-func removableBricks(allBricks []Brick, incoming BrickGraph, outgoing BrickGraph) []int {
+func removableBricks(allBricks []Brick) []int {
+	incoming, outgoing := buildBrickGraph(allBricks)
+
 	removable := []int{}
 	for i := range allBricks {
 		dependents := outgoing[i]
@@ -235,6 +196,38 @@ func removableBricks(allBricks []Brick, incoming BrickGraph, outgoing BrickGraph
 	}
 
 	return removable
+}
+
+func numBricksFallingByRemoval(allBricks []Brick, removeBrick int) int {
+	if removeBrick >= len(allBricks) {
+		panic("cannot remove brick not in bricks list")
+	}
+
+	incoming, outgoing := buildBrickGraph(allBricks)
+	stableNodes := map[int]struct{}{}
+	lastFalling := map[int]struct{}{}
+	for {
+		reachableNodes := outgoing.ReachableFromExcluding(removeBrick, stableNodes)
+		for reachable := range reachableNodes {
+			for _, parentOfReachable := range incoming[reachable] {
+				if _, ok := reachableNodes[parentOfReachable]; !ok && parentOfReachable != removeBrick {
+					// If any reachable node is accessible from another subgraph, it is "stable"
+					stableNodes[reachable] = struct{}{}
+				}
+			}
+		}
+
+		falling := outgoing.ReachableFromExcluding(removeBrick, stableNodes)
+		if mapKeysEqual(falling, lastFalling) {
+			return len(lastFalling)
+		}
+
+		lastFalling = falling
+
+		// We must repeat this process until we reach a state where no more stable nodes are found
+		// There are some cases where a node might be stable, but the children of said stable node
+		// must also be considered invalidated (think of it as second-order stability)
+	}
 }
 
 func sortByHeight(bricks []Brick) {
@@ -340,4 +333,18 @@ func tryParse[T any](items []string, parse func(string) (T, error)) ([]T, error)
 	}
 
 	return res, nil
+}
+
+func mapKeysEqual[T comparable, U any](m1, m2 map[T]U) bool {
+	if len(m1) != len(m2) {
+		return false
+	}
+
+	for key := range m1 {
+		if _, ok := m2[key]; !ok {
+			return false
+		}
+	}
+
+	return true
 }

@@ -1,3 +1,5 @@
+// This code is horrible and repetitive, I'm sorry
+
 package main
 
 import (
@@ -23,6 +25,11 @@ const (
 type Coordinate struct {
 	Row int
 	Col int
+}
+
+type GraphNode struct {
+	Position Coordinate
+	Weight   int
 }
 
 func main() {
@@ -51,28 +58,42 @@ func main() {
 		panic(fmt.Sprintf("could not parse input: %s", err))
 	}
 
-	for _, line := range grid {
-		for _, char := range line {
-			fmt.Printf("%c", char)
-		}
-		fmt.Println()
-	}
-
 	fmt.Printf("Part 1: %d\n", part1(grid))
+	fmt.Printf("Part 2: %d\n", part2(grid))
 }
 
 func part1(grid [][]Tile) int {
+	return solve(grid, true)
+}
+
+func part2(grid [][]Tile) int {
+	return solve(grid, false)
+}
+
+func solve(grid [][]Tile, respectSlopes bool) int {
 	startCol, err := findStartingTile(grid[0])
 	if err != nil {
 		panic(fmt.Sprintf("could not find starting tile: %s", err))
 	}
 
-	path := findLongestPath(
+	endCol, err := findStartingTile(grid[len(grid)-1])
+	if err != nil {
+		panic(fmt.Sprintf("could not find starting tile: %s", err))
+	}
+
+	graph := buildCondensedGraph(
 		Coordinate{Row: 0, Col: startCol},
+		Coordinate{Row: len(grid) - 1, Col: endCol},
 		grid,
+		respectSlopes,
 	)
 
-	return len(path) - 1
+	return findLongestPath(
+		Coordinate{Row: 0, Col: startCol},
+		Coordinate{Row: len(grid) - 1, Col: endCol},
+		grid,
+		graph,
+	)
 }
 
 func findStartingTile(firstRow []Tile) (int, error) {
@@ -93,80 +114,140 @@ func findStartingTile(firstRow []Tile) (int, error) {
 	return *candidate, nil
 }
 
-func findLongestPath(start Coordinate, grid [][]Tile) []Coordinate {
-	// position := start
+func buildCondensedGraph(start, end Coordinate, grid [][]Tile, respectSlopes bool) map[Coordinate][]GraphNode {
 	inBounds := func(pos Coordinate) bool {
 		return pos.Row >= 0 && pos.Row < len(grid) && pos.Col >= 0 && pos.Col < len(grid[0])
 	}
 
-	var dfs func(Coordinate, []Coordinate) []Coordinate
-	// visited := map[Coordinate]struct{}{}
-	dfs = func(cursor Coordinate, path []Coordinate) []Coordinate {
-		// fmt.Println(path)
-		// visited[cursor] = struct{}{}
-
-		upNeighbor := Coordinate{Row: cursor.Row - 1, Col: cursor.Col}
-		downNeighbor := Coordinate{Row: cursor.Row + 1, Col: cursor.Col}
-		leftNeighbor := Coordinate{Row: cursor.Row, Col: cursor.Col - 1}
-		rightNeighbor := Coordinate{Row: cursor.Row, Col: cursor.Col + 1}
-		switch grid[cursor.Row][cursor.Col] {
-		case TileUp:
-			// _, ok := visited[upNeighbor]
-			ok := slices.Contains(path, upNeighbor)
-			if inBounds(upNeighbor) && !ok {
-				nextPath := slices.Clone(path)
-				return dfs(upNeighbor, append(nextPath, upNeighbor))
-			}
-		case TileDown:
-			// _, ok := visited[downNeighbor]
-			ok := slices.Contains(path, downNeighbor)
-			if inBounds(downNeighbor) && !ok {
-				nextPath := slices.Clone(path)
-				return dfs(downNeighbor, append(nextPath, downNeighbor))
-			}
-		case TileLeft:
-			ok := slices.Contains(path, leftNeighbor)
-			// _, ok := visited[leftNeighbor]
-			if inBounds(leftNeighbor) && !ok {
-				nextPath := slices.Clone(path)
-				return dfs(leftNeighbor, append(nextPath, leftNeighbor))
-			}
-		case TileRight:
-			ok := slices.Contains(path, rightNeighbor)
-			// _, ok := visited[rightNeighbor]
-			if inBounds(rightNeighbor) && !ok {
-				nextPath := slices.Clone(path)
-				return dfs(rightNeighbor, append(nextPath, rightNeighbor))
-			}
-		case TileEmpty:
-			neighbors := []Coordinate{upNeighbor, downNeighbor, leftNeighbor, rightNeighbor}
-			longestPath := path
-			for _, neighbor := range neighbors {
-				if !inBounds(neighbor) {
-					continue
-				} else if slices.Contains(path, neighbor) {
-					continue
-				}
-				//else if _, ok := visited[neighbor]; ok {
-				//	continue
-				//}
-
-				nextPath := slices.Clone(path)
-				fullPath := dfs(neighbor, append(nextPath, neighbor))
-				if len(fullPath) > len(longestPath) {
-					longestPath = fullPath
-				}
-			}
-
-			return longestPath
-		case TileWall:
-			return path
-		}
-
-		return path
+	toVisit := []Coordinate{start}
+	visited := map[Coordinate]struct{}{}
+	distances := map[Coordinate]int{
+		start: 0,
 	}
 
-	return dfs(start, []Coordinate{})
+	intersections := map[Coordinate]struct{}{start: {}, end: {}}
+	for len(toVisit) > 0 {
+		visiting := toVisit[0]
+		toVisit = toVisit[1:]
+		visited[visiting] = struct{}{}
+
+		validNeighbors := []Coordinate{}
+		for _, neighbor := range findNeighbors(grid, visiting, respectSlopes) {
+			if !inBounds(neighbor) {
+				continue
+			} else if grid[neighbor.Row][neighbor.Col] == TileWall {
+				continue
+			}
+
+			distances[neighbor] = distances[visiting] + 1
+			validNeighbors = append(validNeighbors, neighbor)
+		}
+
+		if len(validNeighbors) > 2 {
+			intersections[visiting] = struct{}{}
+		}
+
+		for _, neighbor := range validNeighbors {
+			if neighbor == end {
+				intersections[neighbor] = struct{}{}
+			}
+
+			if _, ok := visited[neighbor]; !ok {
+				toVisit = append(
+					toVisit,
+					neighbor,
+				)
+			}
+		}
+	}
+
+	res := map[Coordinate][]GraphNode{}
+	for intersection := range intersections {
+		toVisit := []Coordinate{intersection}
+		visited := map[Coordinate]struct{}{}
+		distances := map[Coordinate]int{
+			intersection: 0,
+		}
+
+		for len(toVisit) > 0 {
+			visiting := toVisit[0]
+			toVisit = toVisit[1:]
+			visited[visiting] = struct{}{}
+			for _, neighbor := range findNeighbors(grid, visiting, respectSlopes) {
+				if !inBounds(neighbor) {
+					continue
+				} else if grid[neighbor.Row][neighbor.Col] == TileWall {
+					continue
+				}
+
+				distances[neighbor] = distances[visiting] + 1
+				if _, ok := intersections[neighbor]; ok && neighbor != intersection {
+					res[intersection] = append(
+						res[intersection],
+						GraphNode{Position: neighbor, Weight: distances[neighbor]},
+					)
+				} else if _, ok := visited[neighbor]; !ok {
+					toVisit = append(toVisit, neighbor)
+				}
+			}
+		}
+	}
+
+	return res
+}
+
+func findLongestPath(start Coordinate, end Coordinate, grid [][]Tile, graph map[Coordinate][]GraphNode) int {
+	var dfs func(Coordinate, []GraphNode) []GraphNode
+	dfs = func(coordinate Coordinate, path []GraphNode) []GraphNode {
+		children := graph[coordinate]
+		longestPath := path
+		for _, child := range children {
+			if slices.ContainsFunc(path, func(node GraphNode) bool { return node.Position == child.Position }) {
+				continue
+			}
+
+			nextPath := slices.Clone(path)
+			nextPath = append(nextPath, child)
+			fullPath := dfs(child.Position, nextPath)
+			if sumWeights(fullPath) > sumWeights(longestPath) && fullPath[len(fullPath)-1].Position == end {
+				longestPath = fullPath
+			}
+		}
+
+		return longestPath
+	}
+
+	res := dfs(start, []GraphNode{})
+
+	return sumWeights(res)
+}
+
+func sumWeights(nodes []GraphNode) int {
+	total := 0
+	for _, node := range nodes {
+		total += node.Weight
+	}
+
+	return total
+}
+
+func findNeighbors(grid [][]Tile, position Coordinate, respectSlopes bool) []Coordinate {
+	upNeighbor := Coordinate{Row: position.Row - 1, Col: position.Col}
+	downNeighbor := Coordinate{Row: position.Row + 1, Col: position.Col}
+	leftNeighbor := Coordinate{Row: position.Row, Col: position.Col - 1}
+	rightNeighbor := Coordinate{Row: position.Row, Col: position.Col + 1}
+
+	if respectSlopes && grid[position.Row][position.Col] == TileLeft {
+		return []Coordinate{leftNeighbor}
+	} else if respectSlopes && grid[position.Row][position.Col] == TileRight {
+		return []Coordinate{rightNeighbor}
+	} else if respectSlopes && grid[position.Row][position.Col] == TileUp {
+		return []Coordinate{upNeighbor}
+	} else if respectSlopes && grid[position.Row][position.Col] == TileDown {
+		return []Coordinate{downNeighbor}
+	}
+
+	return []Coordinate{upNeighbor, downNeighbor, leftNeighbor, rightNeighbor}
 }
 
 func parseGrid(inputLines []string) ([][]Tile, error) {

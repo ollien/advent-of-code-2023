@@ -78,10 +78,35 @@ def part1(hailstones: Iterable[Hailstone]) -> int:
         ):
             continue
 
-        print(total)
         total += 1
 
     return total
+
+
+def part2(hailstones: Iterable[Hailstone]) -> int:
+    equations = []
+    timeVariables = []
+    x0, y0, z0 = sympy.var("x y z")  # type: ignore
+    vx, vy, vz = sympy.var("vx vy vz")  # type: ignore
+
+    # We have 6 unknown variables for our velocity, and one variable (t_n) for every three equations.
+    # With 4 hailstones, we will have 12 equations, and 10 unknowns, which is more than sufficient
+    for i, hailstone in enumerate(itertools.islice(hailstones, 4), 1):
+        timeVar = sympy.var(f"t{i}")
+        localEquations = [
+            x0 + timeVar * vx - (hailstone.position.x + timeVar * hailstone.velocity.x),  # type: ignore
+            y0 + timeVar * vy - (hailstone.position.y + timeVar * hailstone.velocity.y),  # type: ignore
+            z0 + timeVar * vz - (hailstone.position.z + timeVar * hailstone.velocity.z),  # type: ignore
+        ]
+
+        timeVariables.append(timeVar)
+        equations.extend(localEquations)
+
+    res = sympy.solve(equations, *[x0, y0, z0, vx, vy, vz, *timeVariables], dict=True)
+    if len(res) != 1:
+        raise ValueError("more than one unique solution")
+
+    return res[0][x0] + res[0][y0] + res[0][z0]
 
 
 def main():
@@ -92,7 +117,8 @@ def main():
     with open(sys.argv[1]) as inputFile:
         inputData = parseInputFile(inputFile)
 
-    print(part1(inputData))
+    print("Part 2: ", part2(inputData))
+    print("Part 1: ", part1(inputData))
 
 
 if __name__ == "__main__":

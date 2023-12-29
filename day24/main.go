@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,14 +13,14 @@ import (
 )
 
 type Triplet struct {
-	X float64
-	Y float64
-	Z float64
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
 }
 
 type Hailstone struct {
-	Position Triplet
-	Velocity Triplet
+	Position Triplet `json:"position"`
+	Velocity Triplet `json:"velocity"`
 }
 
 func (hailstone Hailstone) LineCoefficients() (float64, float64) {
@@ -60,7 +61,13 @@ func main() {
 	}
 
 	fmt.Printf("Part 1: %d\n", part1(hailstones))
-	// fmt.Printf("Part 2: %d\n", part2(bricks))
+	fmt.Println("Part 2 can be solved using this JSON and the pysolve module")
+	hailstoneJSON, err := json.MarshalIndent(hailstones, "", "  ")
+	if err != nil {
+		panic(fmt.Sprintf("could not marshal hailstones: %s", err))
+	}
+
+	fmt.Println(string(hailstoneJSON))
 }
 
 func part1(hailstones []Hailstone) int {

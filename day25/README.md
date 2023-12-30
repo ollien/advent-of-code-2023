@@ -11,3 +11,7 @@ You then input the nodes to "cut" into the `cut` subcommand. For instance, this 
 ```
 go run main.go inputfile cut htj,pcc dlk,pjj bbg,htb
 ```
+
+Here is an example SVG of the sample input, to demonstrate how you would pick out "htj-pcc", "dlk-pjj", "bbg-htb"
+
+![Graph of AoC Sample 1 Day 25](./sample.svg)
